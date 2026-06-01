@@ -68,6 +68,31 @@ function todayStr() {
   const off = d.getTimezoneOffset();
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
 }
+function isoToDmy(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+function dmyToIso(s) {
+  const m = (s || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!m) return null;
+  const dd = m[1].padStart(2, "0");
+  const mm = m[2].padStart(2, "0");
+  const yyyy = m[3];
+  const month = Number(mm), day = Number(dd);
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  const test = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+  if (test.getFullYear() !== Number(yyyy) || test.getMonth() + 1 !== month || test.getDate() !== day) return null;
+  return `${yyyy}-${mm}-${dd}`;
+}
+function getLogDateIso() {
+  return dmyToIso($("#log-date").value);
+}
+function setLogDateIso(iso) {
+  $("#log-date").value = isoToDmy(iso);
+  $("#log-weekday").textContent = iso ? cap(weekdayName(iso)) : "";
+}
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
 function num(v) {
@@ -139,13 +164,10 @@ async function onLoggedIn(u) {
   hide($("#setup-screen"));
   show($("#app"));
   $("#settings-email").textContent = u.email || "";
-  const cfg = getConfig();
-  $("#settings-url").value = cfg.url;
-  $("#settings-key").value = cfg.key;
 
   await ensureDefaults();
   await loadExercises();
-  $("#log-date").value = todayStr();
+  setLogDateIso(todayStr());
   await renderLog();
 }
 
@@ -233,7 +255,7 @@ function activeExercises() {
 //  LOGG-fane
 // ===================================================================
 async function renderLog() {
-  const date = $("#log-date").value || todayStr();
+  const date = getLogDateIso() || todayStr();
   const box = $("#log-content");
   box.innerHTML = '<div class="empty">Laster…</div>';
 
@@ -302,7 +324,62 @@ function buildDayCard(date, session) {
     picker.appendChild(b);
   });
   card.appendChild(picker);
+
+  const cloneBtn = el("button", "clone-btn", "📋 Klon forrige trening");
+  cloneBtn.type = "button";
+  cloneBtn.addEventListener("click", cloneLastSession);
+  card.appendChild(cloneBtn);
+
   return card;
+}
+
+async function cloneLastSession() {
+  const currentDate = getLogDateIso() || todayStr();
+  const { data: recent, error: rErr } = await sb
+    .from("entries")
+    .select("performed_on")
+    .eq("user_id", user.id)
+    .lt("performed_on", currentDate)
+    .order("performed_on", { ascending: false })
+    .limit(1);
+  if (rErr) { toast("Feil: " + rErr.message, true); return; }
+  if (!recent || !recent.length) {
+    toast("Ingen tidligere økt å klone fra", true);
+    return;
+  }
+  const lastDate = recent[0].performed_on;
+  const { data: entries, error: eErr } = await sb
+    .from("entries")
+    .select("*, sets(*)")
+    .eq("user_id", user.id)
+    .eq("performed_on", lastDate);
+  if (eErr) { toast("Feil: " + eErr.message, true); return; }
+  if (!entries || !entries.length) {
+    toast("Ingen tidligere økt å klone fra", true);
+    return;
+  }
+
+  let cloned = 0;
+  for (const e of entries) {
+    const card = document.querySelector(`.ex-card[data-ex-id="${e.exercise_id}"]`);
+    if (!card) continue;
+    const type = card.dataset.exType;
+    if (type === "cardio") {
+      const minIn = card.querySelector(".f-minutes");
+      const entIn = card.querySelector(".f-entertainment");
+      if (minIn && e.minutes != null) minIn.value = e.minutes;
+      if (entIn && e.entertainment) entIn.value = e.entertainment;
+    } else {
+      const setsWrap = card.querySelector(".sets-wrap");
+      if (!setsWrap) continue;
+      setsWrap.innerHTML = "";
+      const sorted = (e.sets || []).slice().sort((a, b) => a.position - b.position);
+      const rows = sorted.length ? sorted : [{ weight: null, reps: null }];
+      rows.forEach((s, i) => setsWrap.appendChild(buildSetRow(i + 1, s.weight, s.reps, type)));
+    }
+    cloned++;
+  }
+  toast(cloned ? `Klonet fra ${fmtDate(lastDate)} ✓` : "Fant ingen aktive øvelser å klone");
 }
 
 function buildExerciseCard(ex, entry, suggestions) {
@@ -351,15 +428,17 @@ function buildExerciseCard(ex, entry, suggestions) {
     dl.innerHTML = suggestions.map((s) => `<option value="${escapeAttr(s)}"></option>`).join("");
   } else {
     // styrke / kroppsvekt: sett-rader
-    body.appendChild(el("div", "set-head", `<span>#</span><span>Kg</span><span>Reps</span><span></span>`));
+    const noWeight = ex.type === "bodyweight";
+    const headCols = noWeight ? `<span>#</span><span>Reps</span><span></span>` : `<span>#</span><span>Kg</span><span>Reps</span><span></span>`;
+    body.appendChild(el("div", "set-head" + (noWeight ? " no-weight" : ""), headCols));
     const setsWrap = el("div", "sets-wrap");
     body.appendChild(setsWrap);
 
     const existing = entry && entry.sets ? entry.sets.slice().sort((a, b) => a.position - b.position) : [];
     if (existing.length) {
-      existing.forEach((s, i) => setsWrap.appendChild(buildSetRow(i + 1, s.weight, s.reps)));
+      existing.forEach((s, i) => setsWrap.appendChild(buildSetRow(i + 1, s.weight, s.reps, ex.type)));
     } else {
-      setsWrap.appendChild(buildSetRow(1, null, null));
+      setsWrap.appendChild(buildSetRow(1, null, null, ex.type));
     }
 
     const addBtn = el("button", "add-set", "+ Legg til sett");
@@ -367,8 +446,11 @@ function buildExerciseCard(ex, entry, suggestions) {
     addBtn.addEventListener("click", () => {
       const n = setsWrap.children.length + 1;
       const last = setsWrap.lastElementChild;
-      const lastW = last ? last.querySelector(".s-weight").value : "";
-      setsWrap.appendChild(buildSetRow(n, lastW, null));
+      const lastWInput = last && last.querySelector(".s-weight");
+      const lastRInput = last && last.querySelector(".s-reps");
+      const lastW = lastWInput ? lastWInput.value : "";
+      const lastR = lastRInput ? lastRInput.value : "";
+      setsWrap.appendChild(buildSetRow(n, lastW, lastR, ex.type));
       renumber(setsWrap);
     });
     body.appendChild(addBtn);
@@ -378,20 +460,25 @@ function buildExerciseCard(ex, entry, suggestions) {
   return card;
 }
 
-function buildSetRow(n, weight, reps) {
-  const row = el("div", "set-row");
+function buildSetRow(n, weight, reps, type) {
+  const noWeight = type === "bodyweight";
+  const row = el("div", "set-row" + (noWeight ? " no-weight" : ""));
   row.innerHTML = `<span class="setno">${n}</span>`;
-  const w = el("input"); w.type = "number"; w.inputMode = "decimal"; w.placeholder = "kg"; w.className = "s-weight";
-  if (weight != null && weight !== "") w.value = weight;
+  let w = null;
+  if (!noWeight) {
+    w = el("input"); w.type = "number"; w.inputMode = "decimal"; w.placeholder = "kg"; w.className = "s-weight";
+    if (weight != null && weight !== "") w.value = weight;
+  }
   const r = el("input"); r.type = "number"; r.inputMode = "numeric"; r.placeholder = "reps"; r.className = "s-reps";
-  if (reps != null) r.value = reps;
+  if (reps != null && reps !== "") r.value = reps;
   const del = el("button", "del", "×"); del.type = "button";
   del.addEventListener("click", () => {
     const wrap = row.parentElement;
     if (wrap.children.length > 1) { row.remove(); renumber(wrap); }
-    else { w.value = ""; r.value = ""; }
+    else { if (w) w.value = ""; r.value = ""; }
   });
-  row.append(w, r, del);
+  if (w) row.append(w, r, del);
+  else row.append(r, del);
   return row;
 }
 function renumber(wrap) {
@@ -424,7 +511,7 @@ async function entertainmentSuggestions() {
 }
 
 async function saveSession() {
-  const date = $("#log-date").value || todayStr();
+  const date = getLogDateIso() || todayStr();
   const btn = $("#save-session");
   setBtnLoading(btn, true, "Lagrer…");
   let savedCount = 0;
@@ -448,7 +535,8 @@ async function saveSession() {
         const rows = Array.from(card.querySelectorAll(".set-row"));
         const sets = [];
         rows.forEach((row, i) => {
-          const w = num(row.querySelector(".s-weight").value);
+          const wEl = row.querySelector(".s-weight");
+          const w = wEl ? num(wEl.value) : null;
           const r = num(row.querySelector(".s-reps").value);
           if (r != null || w != null) sets.push({ position: i + 1, weight: w, reps: r });
         });
@@ -514,12 +602,18 @@ const METRICS = {
   bodyweight: [["totalReps", "Totalt reps"], ["maxReps", "Maks reps"], ["volume", "Volum (kg)"]],
 };
 
-function fillProgressExercises() {
+async function fillProgressExercises() {
   const sel = $("#progress-exercise");
   const cur = sel.value;
-  const list = activeExercises();
+  const { data: usedRows } = await sb
+    .from("entries")
+    .select("exercise_id")
+    .eq("user_id", user.id);
+  const usedIds = new Set((usedRows || []).map((r) => r.exercise_id));
+  const list = activeExercises().filter((e) => usedIds.has(e.id));
   sel.innerHTML = list.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
   if (cur && list.some((e) => e.id === cur)) sel.value = cur;
+  return list;
 }
 
 function fillMetricOptions(type) {
@@ -531,13 +625,15 @@ function fillMetricOptions(type) {
 }
 
 async function renderProgress() {
-  fillProgressExercises();
+  const withData = await fillProgressExercises();
   const sel = $("#progress-exercise");
-  if (!sel.value && activeExercises()[0]) sel.value = activeExercises()[0].id;
+  if (!sel.value && withData[0]) sel.value = withData[0].id;
   const ex = exercisesCache.find((e) => e.id === sel.value);
   if (!ex) {
-    $("#progress-table").innerHTML = '<div class="empty">Ingen øvelse valgt.</div>';
+    hide($("#progress-metric"));
     if (chart) { chart.destroy(); chart = null; }
+    $("#progress-chart").getContext("2d").clearRect(0, 0, $("#progress-chart").width, $("#progress-chart").height);
+    $("#progress-table").innerHTML = '<div class="empty">Ingen øvelser med logger enda. Lagre minst én økt først.</div>';
     return;
   }
   fillMetricOptions(ex.type);
@@ -719,6 +815,22 @@ function renderExerciseList() {
     }
     const item = el("div", "ex-item");
     item.innerHTML = `<div class="meta"><span>${escapeHtml(ex.name)}</span><small>${TYPE_LABEL[ex.type]}</small></div>`;
+    const actions = el("div", "ex-actions");
+
+    const rename = el("button", "rename", "Endre navn");
+    rename.addEventListener("click", async () => {
+      const newName = prompt(`Nytt navn på «${ex.name}»:`, ex.name);
+      if (newName == null) return;
+      const trimmed = newName.trim();
+      if (!trimmed || trimmed === ex.name) return;
+      const { error } = await sb.from("exercises").update({ name: trimmed }).eq("id", ex.id);
+      if (error) return toast("Feil: " + error.message, true);
+      await loadExercises();
+      renderExerciseList();
+      toast(`Endret til «${trimmed}» ✓`);
+    });
+    actions.appendChild(rename);
+
     const arch = el("button", "archive", "Arkiver");
     arch.addEventListener("click", async () => {
       if (!confirm(`Arkivere «${ex.name}»? Gamle logger beholdes.`)) return;
@@ -728,7 +840,9 @@ function renderExerciseList() {
       renderExerciseList();
       toast("Arkivert");
     });
-    item.appendChild(arch);
+    actions.appendChild(arch);
+
+    item.appendChild(actions);
     box.appendChild(item);
   }
 }
@@ -743,7 +857,7 @@ function wireTabs() {
       $$(".tabbtn").forEach((b) => b.classList.toggle("active", b === btn));
       $$(".tab").forEach((t) => t.classList.add("hidden"));
       show($("#tab-" + tab));
-      if (tab === "log") { $("#log-date").value = todayStr(); await renderLog(); }
+      if (tab === "log") { setLogDateIso(todayStr()); await renderLog(); }
       if (tab === "progress") await renderProgress();
       if (tab === "exercises") renderExerciseList();
     });
@@ -755,7 +869,17 @@ function wireStaticUI() {
   wireTabs();
   wireExercises();
 
-  $("#log-date").addEventListener("change", renderLog);
+  $("#log-date").addEventListener("input", (e) => {
+    const raw = e.target.value;
+    const digits = raw.replace(/\D/g, "").slice(0, 8);
+    let formatted = digits;
+    if (digits.length > 4) formatted = digits.slice(0, 2) + "." + digits.slice(2, 4) + "." + digits.slice(4);
+    else if (digits.length > 2) formatted = digits.slice(0, 2) + "." + digits.slice(2);
+    if (formatted !== raw) e.target.value = formatted;
+    const iso = dmyToIso(formatted);
+    $("#log-weekday").textContent = iso ? cap(weekdayName(iso)) : "";
+    if (iso) renderLog();
+  });
   $("#progress-exercise").addEventListener("change", renderProgress);
   $("#progress-metric").addEventListener("change", renderProgress);
 
@@ -769,15 +893,6 @@ function wireStaticUI() {
     location.reload();
   });
 
-  // Innstillinger
-  $("#settings-save").addEventListener("click", () => {
-    const url = $("#settings-url").value.trim();
-    const key = $("#settings-key").value.trim();
-    if (!url || !key) { $("#settings-msg").textContent = "Fyll inn begge feltene."; $("#settings-msg").className = "auth-msg err"; return; }
-    localStorage.setItem(LS.url, url);
-    localStorage.setItem(LS.key, key);
-    location.reload();
-  });
   $("#logout-btn").addEventListener("click", async () => {
     if (sb) await sb.auth.signOut();
     location.reload();

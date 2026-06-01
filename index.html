@@ -59,7 +59,11 @@
     <section id="tab-log" class="tab">
       <header class="topbar">
         <h2>Logg økt</h2>
-        <input id="log-date" type="date" class="date-input" />
+        <div class="date-picker">
+          <input id="log-date" type="text" inputmode="numeric" maxlength="10"
+                 placeholder="dd.mm.åååå" class="date-input" autocomplete="off" />
+          <span id="log-weekday" class="date-weekday"></span>
+        </div>
       </header>
       <div id="log-content" class="content"></div>
     </section>
@@ -106,14 +110,6 @@
         <div class="card">
           <div class="row-between"><span>Innlogget som</span><strong id="settings-email" class="muted"></strong></div>
           <button id="logout-btn" class="ghost block">Logg ut</button>
-        </div>
-        <div class="card">
-          <label>Supabase Project URL</label>
-          <input id="settings-url" type="url" />
-          <label>anon public key</label>
-          <input id="settings-key" type="text" />
-          <button id="settings-save" class="primary block">Lagre tilkobling</button>
-          <p id="settings-msg" class="auth-msg"></p>
         </div>
         <p class="muted small">Treningsloggbok · data lagret i din egen Supabase.</p>
       </div>
