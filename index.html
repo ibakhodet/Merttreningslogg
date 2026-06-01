@@ -2,7 +2,11 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Skjult fra søkemotorer – dette er en privat logg. -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+  <meta name="googlebot" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#2563eb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -29,7 +33,7 @@
 
       <div id="auth-step-code" class="hidden">
         <label>Engangskode (sjekk e-posten)</label>
-        <input id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-sifret kode" />
+        <input id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Engangskode fra e-post" />
         <button id="auth-verify" class="primary block">Logg inn</button>
         <button id="auth-back" class="ghost block">Bruk en annen e-post</button>
       </div>

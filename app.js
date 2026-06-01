@@ -159,11 +159,15 @@ async function init() {
     show($("#auth-screen"));
   }
 
-  sb.auth.onAuthStateChange((_event, session) => {
+  sb.auth.onAuthStateChange((event, session) => {
     if (!session) {
+      // Utlogget eller utløpt session -> tilbake til innlogging.
       user = null;
       hide($("#app"));
       show($("#auth-screen"));
+    } else if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && $("#app").classList.contains("hidden")) {
+      // Innlogget på nytt (eller token oppfrisket) mens appen var skjult.
+      onLoggedIn(session.user);
     }
   });
 }
@@ -199,13 +203,15 @@ function wireAuth() {
     const email = $("#auth-email").value.trim();
     if (!email) return authMsg("Skriv inn e-post.", true);
     setBtnLoading($("#auth-send"), true, "Sender…");
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    // shouldCreateUser: false – ingen nye kontoer kan opprettes via appen.
+    // Kontoen finnes allerede; dette hindrer fremmede i å registrere seg.
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
     setBtnLoading($("#auth-send"), false, "Send engangskode");
     if (error) return authMsg(error.message, true);
     pendingEmail = email;
     hide($("#auth-step-email"));
     show($("#auth-step-code"));
-    authMsg("Vi sendte en 6-sifret kode til " + email + ".");
+    authMsg("Vi sendte en engangskode til " + email + ".");
   });
 
   $("#auth-verify").addEventListener("click", async () => {
@@ -404,7 +410,9 @@ function buildExerciseCard(ex, entry, suggestions) {
   card.dataset.exType = ex.type;
 
   const head = el("div", "ex-head");
-  head.appendChild(el("span", "name", ex.name));
+  const nameSpan = el("span", "name");
+  nameSpan.textContent = ex.name;
+  head.appendChild(nameSpan);
   const saved = entry ? '<span class="ex-saved-tag">● lagret</span>' : "";
   head.insertAdjacentHTML("beforeend", `<span class="badge">${badgeText(ex.type)} ${saved}</span>`);
   card.appendChild(head);
