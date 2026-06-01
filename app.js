@@ -616,12 +616,6 @@ async function upsertEntry(exId, date, fields) {
 // ===================================================================
 //  PROGRESJON-fane
 // ===================================================================
-const METRICS = {
-  cardio: [["minutes", "Minutter"]],
-  strength: [["maxWeight", "Maks vekt (kg)"], ["volume", "Volum (kg)"], ["maxReps", "Maks reps"]],
-  bodyweight: [["totalReps", "Totalt reps"], ["maxReps", "Maks reps"], ["volume", "Volum (kg)"]],
-};
-
 async function fillProgressExercises() {
   const sel = $("#progress-exercise");
   const cur = sel.value;
@@ -636,27 +630,17 @@ async function fillProgressExercises() {
   return list;
 }
 
-function fillMetricOptions(type) {
-  const sel = $("#progress-metric");
-  const metrics = METRICS[type] || METRICS.strength;
-  if (type === "cardio") { hide(sel); }
-  else { show(sel); }
-  sel.innerHTML = metrics.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
-}
-
 async function renderProgress() {
   const withData = await fillProgressExercises();
   const sel = $("#progress-exercise");
   if (!sel.value && withData[0]) sel.value = withData[0].id;
   const ex = exercisesCache.find((e) => e.id === sel.value);
   if (!ex) {
-    hide($("#progress-metric"));
     if (chart) { chart.destroy(); chart = null; }
     $("#progress-chart").getContext("2d").clearRect(0, 0, $("#progress-chart").width, $("#progress-chart").height);
     $("#progress-table").innerHTML = '<div class="empty">Ingen øvelser med logger enda. Lagre minst én økt først.</div>';
     return;
   }
-  fillMetricOptions(ex.type);
   await drawProgress(ex);
 }
 
@@ -679,34 +663,21 @@ async function drawProgress(ex) {
   const dates = entries.map((e) => e.performed_on);
   const energyByDate = await loadEnergyMap(dates);
 
-  const metric = ex.type === "cardio" ? "minutes" : ($("#progress-metric").value || METRICS[ex.type][0][0]);
-  const points = entries.map((e) => ({
-    date: e.performed_on,
-    value: metricValue(ex.type, metric, e),
-    energy: energyByDate[e.performed_on] || null,
-  }));
+  const points = entries.map((e) => {
+    const sets = e.sets || [];
+    const weights = sets.map((s) => s.weight).filter((v) => v != null);
+    const reps = sets.map((s) => s.reps).filter((v) => v != null);
+    return {
+      date: e.performed_on,
+      energy: energyByDate[e.performed_on] || null,
+      maxWeight: weights.length ? Math.max(...weights) : null,
+      maxReps: reps.length ? Math.max(...reps) : null,
+      minutes: e.minutes,
+    };
+  });
 
-  drawChart(points, metricLabel(ex.type, metric));
+  drawChart(ex.type, points);
   drawTable(ex, entries.slice().reverse(), energyByDate);
-}
-
-function metricValue(type, metric, e) {
-  if (type === "cardio") return e.minutes || 0;
-  const sets = e.sets || [];
-  const weights = sets.map((s) => s.weight || 0);
-  const reps = sets.map((s) => s.reps || 0);
-  switch (metric) {
-    case "maxWeight": return weights.length ? Math.max(...weights) : 0;
-    case "maxReps": return reps.length ? Math.max(...reps) : 0;
-    case "totalReps": return reps.reduce((a, b) => a + b, 0);
-    case "volume": return sets.reduce((a, s) => a + (s.weight || 0) * (s.reps || 0), 0);
-    default: return 0;
-  }
-}
-function metricLabel(type, metric) {
-  const all = METRICS[type] || [];
-  const f = all.find(([v]) => v === metric);
-  return f ? f[1] : "Verdi";
 }
 
 async function loadEnergyMap(dates) {
@@ -721,27 +692,84 @@ async function loadEnergyMap(dates) {
   return map;
 }
 
-function drawChart(points, label) {
+function drawChart(type, points) {
   const ctx = $("#progress-chart").getContext("2d");
   if (chart) chart.destroy();
+  const labels = points.map((p) => fmtDate(p.date));
   const colors = points.map((p) => (p.energy && ENERGY_COLOR[p.energy]) || POINT_DEFAULT);
+
+  const datasets = [];
+  const scales = {
+    x: { ticks: { color: "#93a4c4", maxRotation: 0, autoSkip: true }, grid: { color: "#1a2740" } },
+  };
+
+  const lineCommon = {
+    tension: 0.25,
+    pointBackgroundColor: colors,
+    pointBorderColor: colors,
+  };
+
+  if (type === "cardio") {
+    datasets.push({
+      ...lineCommon,
+      label: "Minutter",
+      data: points.map((p) => p.minutes),
+      borderColor: "#38bdf8",
+      backgroundColor: "rgba(56,189,248,0.15)",
+      fill: true,
+      pointRadius: 6, pointHoverRadius: 8,
+      yAxisID: "y",
+    });
+    scales.y = { beginAtZero: true, ticks: { color: "#93a4c4" }, grid: { color: "#1a2740" } };
+  } else if (type === "bodyweight") {
+    datasets.push({
+      ...lineCommon,
+      label: "Maks reps",
+      data: points.map((p) => p.maxReps),
+      borderColor: "#f97316",
+      backgroundColor: "rgba(249,115,22,0.15)",
+      fill: true,
+      pointRadius: 6, pointHoverRadius: 8,
+      yAxisID: "y",
+    });
+    scales.y = { beginAtZero: true, ticks: { color: "#93a4c4" }, grid: { color: "#1a2740" } };
+  } else {
+    // strength: dual akse (kg + reps)
+    datasets.push({
+      ...lineCommon,
+      label: "Maks vekt (kg)",
+      data: points.map((p) => p.maxWeight),
+      borderColor: "#38bdf8",
+      backgroundColor: "rgba(56,189,248,0.15)",
+      fill: true,
+      pointRadius: 6, pointHoverRadius: 8,
+      yAxisID: "y",
+    });
+    datasets.push({
+      ...lineCommon,
+      label: "Maks reps",
+      data: points.map((p) => p.maxReps),
+      borderColor: "#f97316",
+      backgroundColor: "rgba(249,115,22,0.06)",
+      fill: false,
+      pointRadius: 5, pointHoverRadius: 7,
+      yAxisID: "y1",
+    });
+    scales.y = {
+      type: "linear", position: "left", beginAtZero: true,
+      title: { display: true, text: "kg", color: "#38bdf8", font: { weight: "600" } },
+      ticks: { color: "#93a4c4" }, grid: { color: "#1a2740" },
+    };
+    scales.y1 = {
+      type: "linear", position: "right", beginAtZero: true,
+      title: { display: true, text: "reps", color: "#f97316", font: { weight: "600" } },
+      ticks: { color: "#93a4c4" }, grid: { drawOnChartArea: false },
+    };
+  }
+
   chart = new Chart(ctx, {
     type: "line",
-    data: {
-      labels: points.map((p) => fmtDate(p.date)),
-      datasets: [{
-        label,
-        data: points.map((p) => p.value),
-        borderColor: "#38bdf8",
-        backgroundColor: "rgba(56,189,248,0.15)",
-        fill: true,
-        tension: 0.25,
-        pointRadius: 6,
-        pointHoverRadius: 8,
-        pointBackgroundColor: colors,
-        pointBorderColor: colors,
-      }],
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -756,10 +784,7 @@ function drawChart(points, label) {
           },
         },
       },
-      scales: {
-        x: { ticks: { color: "#93a4c4", maxRotation: 0, autoSkip: true }, grid: { color: "#1a2740" } },
-        y: { beginAtZero: true, ticks: { color: "#93a4c4" }, grid: { color: "#1a2740" } },
-      },
+      scales,
     },
   });
 }
@@ -901,7 +926,6 @@ function wireStaticUI() {
     if (iso) renderLog();
   });
   $("#progress-exercise").addEventListener("change", renderProgress);
-  $("#progress-metric").addEventListener("change", renderProgress);
 
   // Setup-skjerm
   $("#setup-save").addEventListener("click", () => {
