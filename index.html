@@ -114,6 +114,33 @@
           <div class="row-between"><span>Innlogget som</span><strong id="settings-email" class="muted"></strong></div>
           <button id="logout-btn" class="ghost block">Logg ut</button>
         </div>
+
+        <div class="card">
+          <label>Sikkerhetskopi</label>
+          <p class="muted small mb">Last ned all treningsdataen din. Trygt å gjøre når som helst.</p>
+          <button id="export-json" class="ghost block">⬇️ Last ned alt (JSON)</button>
+          <button id="export-csv" class="ghost block mt8">📊 Last ned regneark (CSV)</button>
+        </div>
+
+        <div class="card">
+          <label>Visning</label>
+          <label class="toggle-row">
+            <span>Strong Doge-feiring ved lagring 🐶</span>
+            <input id="toggle-doge" type="checkbox" />
+          </label>
+        </div>
+
+        <div class="card">
+          <label>Vedlikehold</label>
+          <p class="muted small mb">Viser appen en gammel versjon? Hent siste her.</p>
+          <button id="refresh-app" class="ghost block">♻️ Hent ny versjon</button>
+        </div>
+
+        <div class="card">
+          <div class="row-between"><span>Versjon</span><strong id="app-version" class="muted"></strong></div>
+          <a class="muted small source-link" href="https://github.com/ibakhodet/Merttreningslogg" target="_blank" rel="noopener noreferrer">Kildekode på GitHub ↗</a>
+        </div>
+
         <p class="muted small">Treningsloggbok · data lagret i din egen Supabase.</p>
       </div>
     </section>

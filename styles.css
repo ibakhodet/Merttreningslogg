@@ -132,6 +132,12 @@ button.danger { color: var(--danger); }
 }
 .card > label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mb { margin: 0 0 10px; }
+.mt8 { margin-top: 8px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.toggle-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: 0 0 auto; }
+.source-link { display: inline-block; margin-top: 8px; color: var(--accent-bright); text-decoration: none; }
+.last-hint { font-size: 12.5px; color: var(--muted); margin: -2px 0 8px; padding: 0 2px; font-weight: 500; }
 .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-bright); font-weight: 700; margin: 12px 2px 0; }
 
 /* ---------- Day card / energy ---------- */

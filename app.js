@@ -7,7 +7,15 @@ import Chart from "https://esm.sh/chart.js@4.4.3/auto";
 const LS = {
   url: "sb_url",
   key: "sb_key",
+  doge: "doge_on",
 };
+
+const APP_VERSION = "1.1";
+
+// Spor ulagrede endringer i Logg-fanen
+let logDirty = false;
+let renderedDate = null;
+let dateDebounce = null;
 
 const DEFAULT_EXERCISES = [
   // navn, type
@@ -102,6 +110,7 @@ function num(v) {
 }
 let dogeTimer;
 function praiseDoge() {
+  if (localStorage.getItem(LS.doge) === "off") return;
   const d = $("#doge-praise");
   if (!d) return;
   d.classList.remove("show");
@@ -287,20 +296,24 @@ async function renderLog() {
     return;
   }
 
-  // Hent dagens oppføringer + sett
-  const { data: entries } = await sb
-    .from("entries")
-    .select("*, sets(*)")
-    .eq("user_id", user.id)
-    .eq("performed_on", date);
+  // Hent alt parallelt: dagens oppføringer, forslag, dagsform, og tidligere
+  // økter (for «Sist gang»-hint på hvert øvelseskort).
+  const [todayRes, suggestions, session, priorRes] = await Promise.all([
+    sb.from("entries").select("*, sets(*)").eq("user_id", user.id).eq("performed_on", date),
+    entertainmentSuggestions(),
+    loadSession(date),
+    sb.from("entries").select("*, sets(*)").eq("user_id", user.id)
+      .lt("performed_on", date).order("performed_on", { ascending: false }).limit(400),
+  ]);
+
   const byEx = {};
-  (entries || []).forEach((e) => { byEx[e.exercise_id] = e; });
+  (todayRes.data || []).forEach((e) => { byEx[e.exercise_id] = e; });
 
-  // Forslag til underholdning (tidligere tekster)
-  const suggestions = await entertainmentSuggestions();
-
-  // Dagsform for denne datoen
-  const session = await loadSession(date);
+  // Siste oppføring per øvelse FØR valgt dato (først i lista = nyest)
+  const lastByEx = {};
+  (priorRes.data || []).forEach((e) => {
+    if (!lastByEx[e.exercise_id]) lastByEx[e.exercise_id] = e;
+  });
 
   box.innerHTML = "";
   box.appendChild(buildDayCard(date, session));
@@ -311,7 +324,7 @@ async function renderLog() {
       box.appendChild(el("div", "section-title", TYPE_LABEL[ex.type].split(" · ")[0]));
       lastType = ex.type;
     }
-    box.appendChild(buildExerciseCard(ex, byEx[ex.id], suggestions));
+    box.appendChild(buildExerciseCard(ex, byEx[ex.id], suggestions, lastByEx[ex.id]));
   }
 
   // Lagre-knapp
@@ -321,6 +334,24 @@ async function renderLog() {
   btn.addEventListener("click", saveSession);
   bar.appendChild(btn);
   box.appendChild(bar);
+
+  // Frisk visning fra databasen -> ingen ulagrede endringer
+  renderedDate = date;
+  logDirty = false;
+}
+
+function lastEntryHint(ex, last) {
+  if (!last) return null;
+  let summary = "";
+  if (ex.type === "cardio") {
+    if (last.minutes != null) summary = last.minutes + " min";
+    if (last.entertainment) summary += (summary ? " · " : "") + last.entertainment;
+  } else {
+    const ss = (last.sets || []).slice().sort((a, b) => a.position - b.position);
+    summary = ss.map((s) => (s.weight != null ? s.weight + "kg×" : "") + (s.reps ?? "?")).join(", ");
+  }
+  if (!summary) return null;
+  return `Sist (${fmtDate(last.performed_on)}): ${summary}`;
 }
 
 function buildDayCard(date, session) {
@@ -404,7 +435,7 @@ async function cloneLastSession() {
   toast(cloned ? `Klonet fra ${fmtDate(lastDate)} ✓` : "Fant ingen aktive øvelser å klone");
 }
 
-function buildExerciseCard(ex, entry, suggestions) {
+function buildExerciseCard(ex, entry, suggestions, lastEntry) {
   const card = el("div", "ex-card");
   card.dataset.exId = ex.id;
   card.dataset.exType = ex.type;
@@ -416,6 +447,13 @@ function buildExerciseCard(ex, entry, suggestions) {
   const saved = entry ? '<span class="ex-saved-tag">● lagret</span>' : "";
   head.insertAdjacentHTML("beforeend", `<span class="badge">${badgeText(ex.type)} ${saved}</span>`);
   card.appendChild(head);
+
+  const hint = lastEntryHint(ex, lastEntry);
+  if (hint) {
+    const h = el("div", "last-hint");
+    h.textContent = hint;
+    card.appendChild(h);
+  }
 
   const body = el("div", "ex-body");
 
@@ -566,10 +604,19 @@ async function saveSession() {
         });
         if (sets.length === 0) continue;
         const entry = await upsertEntry(exId, date, {});
-        await sb.from("sets").delete().eq("entry_id", entry.id);
-        await sb.from("sets").insert(
+        // Trygt mot datatap: hent gamle sett-ID-er, sett inn de nye FØRST,
+        // og slett de gamle først når innsettingen faktisk lyktes. Hvis nettet
+        // faller ut midt i, beholdes de gamle settene i stedet for å forsvinne.
+        const { data: oldSets } = await sb.from("sets").select("id").eq("entry_id", entry.id);
+        const { error: insErr } = await sb.from("sets").insert(
           sets.map((s) => ({ user_id: user.id, entry_id: entry.id, ...s }))
         );
+        if (insErr) throw insErr;
+        const oldIds = (oldSets || []).map((s) => s.id);
+        if (oldIds.length) {
+          const { error: delErr } = await sb.from("sets").delete().in("id", oldIds);
+          if (delErr) throw delErr;
+        }
         savedCount++;
       }
     }
@@ -907,6 +954,11 @@ function wireTabs() {
   $$(".tabbtn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const tab = btn.dataset.tab;
+      // Beskytt ulagrede endringer når man forlater Logg-fanen
+      const leavingLog = !$("#tab-log").classList.contains("hidden");
+      if (leavingLog && tab !== "log" && logDirty) {
+        if (!confirm("Du har ulagrede endringer i økta. Forlate uten å lagre?")) return;
+      }
       $$(".tabbtn").forEach((b) => b.classList.toggle("active", b === btn));
       $$(".tab").forEach((t) => t.classList.add("hidden"));
       show($("#tab-" + tab));
@@ -917,10 +969,20 @@ function wireTabs() {
   });
 }
 
+function maybeRenderForDate(iso) {
+  if (!iso || iso === renderedDate) return;
+  if (logDirty && !confirm("Du har ulagrede endringer for " + fmtDate(renderedDate) + ". Bytte dato og forkaste dem?")) {
+    setLogDateIso(renderedDate); // angre datobyttet i visningen
+    return;
+  }
+  renderLog();
+}
+
 function wireStaticUI() {
   wireAuth();
   wireTabs();
   wireExercises();
+  wireSettings();
 
   $("#log-date").addEventListener("input", (e) => {
     const raw = e.target.value;
@@ -931,12 +993,22 @@ function wireStaticUI() {
     if (formatted !== raw) e.target.value = formatted;
     const iso = dmyToIso(formatted);
     $("#log-weekday").textContent = iso ? cap(weekdayName(iso)) : "";
-    if (iso) renderLog();
+    if (!iso || iso === renderedDate) return;
+    clearTimeout(dateDebounce);
+    dateDebounce = setTimeout(() => maybeRenderForDate(iso), 350);
   });
   $("#progress-exercise").addEventListener("change", renderProgress);
 
-  // Setup-skjerm
-  $("#setup-save").addEventListener("click", () => {
+  // Marker ulagrede endringer i Logg-fanen
+  const logBox = $("#log-content");
+  logBox.addEventListener("input", () => { logDirty = true; });
+  logBox.addEventListener("click", (e) => {
+    if (e.target.closest(".energy-btn, .add-set, .del, .clone-btn")) logDirty = true;
+  });
+
+  // Setup-skjerm (fallback hvis Supabase-nøkler mangler i config.js)
+  const setupSave = $("#setup-save");
+  if (setupSave) setupSave.addEventListener("click", () => {
     const url = $("#setup-url").value.trim();
     const key = $("#setup-key").value.trim();
     if (!url || !key) { $("#setup-msg").textContent = "Fyll inn begge feltene."; $("#setup-msg").className = "auth-msg err"; return; }
@@ -949,6 +1021,111 @@ function wireStaticUI() {
     if (sb) await sb.auth.signOut();
     location.reload();
   });
+}
+
+// ===================================================================
+//  Innstillinger: eksport/backup, doge-bryter, oppdatering
+// ===================================================================
+function wireSettings() {
+  $("#app-version").textContent = "v" + APP_VERSION;
+
+  const dogeToggle = $("#toggle-doge");
+  if (dogeToggle) {
+    dogeToggle.checked = localStorage.getItem(LS.doge) !== "off";
+    dogeToggle.addEventListener("change", () => {
+      localStorage.setItem(LS.doge, dogeToggle.checked ? "on" : "off");
+      if (dogeToggle.checked) praiseDoge();
+    });
+  }
+
+  const expJson = $("#export-json");
+  if (expJson) expJson.addEventListener("click", () => exportData("json"));
+  const expCsv = $("#export-csv");
+  if (expCsv) expCsv.addEventListener("click", () => exportData("csv"));
+
+  const refresh = $("#refresh-app");
+  if (refresh) refresh.addEventListener("click", refreshApp);
+}
+
+async function fetchAllData() {
+  const [exercises, entries, sessions, sets] = await Promise.all([
+    sb.from("exercises").select("*").eq("user_id", user.id),
+    sb.from("entries").select("*").eq("user_id", user.id),
+    sb.from("sessions").select("*").eq("user_id", user.id),
+    sb.from("sets").select("*").eq("user_id", user.id),
+  ]);
+  return {
+    exercises: exercises.data || [],
+    entries: entries.data || [],
+    sessions: sessions.data || [],
+    sets: sets.data || [],
+  };
+}
+
+function downloadBlob(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function csvCell(v) {
+  const s = String(v == null ? "" : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+async function exportData(format) {
+  try {
+    toast("Henter data…");
+    const data = await fetchAllData();
+    if (format === "json") {
+      const payload = { exported_at: new Date().toISOString(), version: APP_VERSION, ...data };
+      downloadBlob(`treningslogg-${todayStr()}.json`, JSON.stringify(payload, null, 2), "application/json");
+    } else {
+      const exById = {}; data.exercises.forEach((e) => { exById[e.id] = e; });
+      const energyByDate = {}; data.sessions.forEach((s) => { energyByDate[s.performed_on] = s.energy; });
+      const setsByEntry = {}; data.sets.forEach((s) => { (setsByEntry[s.entry_id] = setsByEntry[s.entry_id] || []).push(s); });
+      const rows = [["dato", "ukedag", "ovelse", "type", "dagsform", "kg", "reps", "minutter", "sa_pa"]];
+      const entries = data.entries.slice().sort((a, b) => (a.performed_on < b.performed_on ? -1 : 1));
+      for (const e of entries) {
+        const ex = exById[e.exercise_id] || {};
+        const energy = energyByDate[e.performed_on] || "";
+        const wd = weekdayName(e.performed_on);
+        if (ex.type === "cardio") {
+          rows.push([e.performed_on, wd, ex.name || "", "kondisjon", energy, "", "", e.minutes ?? "", e.entertainment || ""]);
+        } else {
+          const ss = (setsByEntry[e.id] || []).slice().sort((a, b) => a.position - b.position);
+          if (!ss.length) rows.push([e.performed_on, wd, ex.name || "", ex.type || "", energy, "", "", "", ""]);
+          ss.forEach((s) => rows.push([e.performed_on, wd, ex.name || "", ex.type || "", energy, s.weight ?? "", s.reps ?? "", "", ""]));
+        }
+      }
+      const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
+      downloadBlob(`treningslogg-${todayStr()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
+    }
+    toast("Lastet ned ✓");
+  } catch (e) {
+    console.error(e);
+    toast("Eksport feilet: " + (e.message || e), true);
+  }
+}
+
+async function refreshApp() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) { /* ignorer – vi laster på nytt uansett */ }
+  location.reload();
 }
 
 // ===================================================================
