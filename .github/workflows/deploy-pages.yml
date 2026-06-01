@@ -1,0 +1,46 @@
+# Valgfri: publiser appen til GitHub Pages via GitHub Actions.
+#
+# Denne kjører IKKE automatisk – du starter den selv når du er klar:
+#   GitHub -> fanen "Actions" -> "Deploy to GitHub Pages" -> "Run workflow".
+#
+# Krever at du har satt Pages-kilde til "GitHub Actions":
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+#
+# (Alternativt kan du droppe denne fila helt og bruke
+#  "Deploy from a branch" – se HANDOFF.md.)
+
+name: Deploy to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site (hele repoet)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
