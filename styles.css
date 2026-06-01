@@ -176,6 +176,46 @@ button.danger { color: var(--danger); }
 .clone-btn { display: block; width: 100%; margin-top: 14px; background: rgba(59,130,246,0.12); color: var(--accent-bright); border: 1px solid var(--accent); padding: 12px; font-weight: 700; font-size: 15px; border-radius: 12px; }
 .clone-btn:active { background: rgba(59,130,246,0.22); }
 
+/* ---------- Strong Doge praise ---------- */
+.doge-praise {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(255, 215, 90, 0.18) 0%, rgba(0,0,0,0) 60%);
+  opacity: 0;
+}
+.doge-praise img {
+  width: 40vw;
+  max-width: 320px;
+  filter: drop-shadow(0 0 28px rgba(255, 215, 90, 0.65)) drop-shadow(0 8px 22px rgba(0,0,0,0.55));
+  transform: scale(0.6);
+  transform-origin: center center;
+}
+.doge-praise.show {
+  animation: doge-glow 2800ms ease-out forwards;
+}
+.doge-praise.show img {
+  animation: doge-rise 2800ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+@keyframes doge-glow {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes doge-rise {
+  0%   { transform: scale(0.55); }
+  100% { transform: scale(1.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doge-praise.show { animation-duration: 1200ms; }
+  .doge-praise.show img { animation: none; transform: scale(1.1); }
+}
+
 .suggest-wrap { position: relative; }
 
 /* ---------- Type picker ---------- */

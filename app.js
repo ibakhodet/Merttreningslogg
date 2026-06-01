@@ -100,6 +100,22 @@ function num(v) {
   const n = Number(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : null;
 }
+let dogeTimer;
+function praiseDoge() {
+  const d = $("#doge-praise");
+  if (!d) return;
+  d.classList.remove("show");
+  d.classList.remove("hidden");
+  // Tving reflow så animasjonen restartes
+  void d.offsetWidth;
+  d.classList.add("show");
+  clearTimeout(dogeTimer);
+  dogeTimer = setTimeout(() => {
+    d.classList.add("hidden");
+    d.classList.remove("show");
+  }, 2900);
+}
+
 let toastTimer;
 function toast(msg, isErr = false) {
   const t = $("#toast");
@@ -552,7 +568,11 @@ async function saveSession() {
     setBtnLoading(btn, false, "Lagre økt");
     if (savedCount === 0 && !energy) toast("Ingenting å lagre – fyll inn noe først", true);
     else if (savedCount === 0) { toast("Dagsform lagret ✓"); await renderLog(); }
-    else { toast("Lagret " + savedCount + " øvelse" + (savedCount > 1 ? "r" : "") + " ✓"); await renderLog(); }
+    else {
+      toast("Lagret " + savedCount + " øvelse" + (savedCount > 1 ? "r" : "") + " ✓");
+      praiseDoge();
+      await renderLog();
+    }
   } catch (e) {
     console.error(e);
     setBtnLoading(btn, false, "Lagre økt");

@@ -1,6 +1,6 @@
 // Enkel service worker – gjør appen installerbar og laster app-skallet raskt.
 // Nettverk-først for navigasjon slik at du alltid får siste versjon når du er på nett.
-const CACHE = "trening-v10";
+const CACHE = "trening-v11";
 const SHELL = [
   "./",
   "./index.html",
@@ -11,6 +11,7 @@ const SHELL = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
+  "./icons/strong-doge.png",
 ];
 
 self.addEventListener("install", (e) => {
