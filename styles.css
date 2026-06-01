@@ -112,14 +112,10 @@ button.danger { color: var(--danger); }
 
 /* ---------- App layout ---------- */
 #app { max-width: 560px; margin: 0 auto; min-height: 100%; }
-.tab { padding-bottom: calc(96px + var(--safe-bottom)); }
+.tab { padding-bottom: calc(80px + var(--safe-bottom)); }
 .topbar {
-  position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: calc(var(--safe-top) + 16px) 16px 13px;
-  background: rgba(7, 12, 24, 0.72);
-  backdrop-filter: saturate(160%) blur(16px);
-  -webkit-backdrop-filter: saturate(160%) blur(16px);
   border-bottom: 1px solid var(--line-soft);
 }
 .topbar h2 { font-size: 21px; margin: 0; font-weight: 700; letter-spacing: -0.3px; }
@@ -239,8 +235,8 @@ button.danger { color: var(--danger); }
 .ex-item .rename { color: var(--accent-bright); }
 
 /* ---------- Save bar ---------- */
-.savebar { position: fixed; left: 0; right: 0; bottom: calc(70px + var(--safe-bottom)); display: flex; justify-content: center; padding: 0 16px; z-index: 20; pointer-events: none; }
-.savebar button { pointer-events: auto; box-shadow: 0 12px 30px rgba(7, 16, 35, 0.7), var(--shadow-blue); max-width: 560px; width: 100%; }
+.savebar { display: flex; justify-content: center; padding: 8px 0 4px; }
+.savebar button { box-shadow: var(--shadow-blue); max-width: 560px; width: 100%; }
 
 /* ---------- Chart / table ---------- */
 .chart-wrap {
