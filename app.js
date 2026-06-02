@@ -1,5 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Chart from "https://esm.sh/chart.js@4.4.3/auto";
+import annotationPlugin from "https://esm.sh/chartjs-plugin-annotation@3";
+Chart.register(annotationPlugin);
+
+// Viktige hendelser som tegnes som loddrette markører på alle grafer
+const LIFE_EVENTS = [
+  { date: "2026-02-02", label: "❤️ Hjerteoperasjon", color: "#ef4444" },
+];
 
 // ===================================================================
 //  Oppsett / tilstand
@@ -747,11 +754,48 @@ async function loadEnergyMap(dates) {
   return map;
 }
 
+function buildLifeEventAnnotations(points) {
+  const out = {};
+  if (!points.length) return out;
+  const first = points[0].date;
+  const last = points[points.length - 1].date;
+  LIFE_EVENTS.forEach((ev, idx) => {
+    if (ev.date < first || ev.date > last) return; // Hopp over hvis utenfor synlig spenn
+    // Finn posisjon på den kategoriske x-aksen (bruk bråkindeks mellom punkter)
+    let pos = null;
+    for (let i = 0; i < points.length; i++) {
+      if (points[i].date === ev.date) { pos = i; break; }
+      if (points[i].date > ev.date) { pos = i - 0.5; break; }
+    }
+    if (pos === null) return;
+    out["life_" + idx] = {
+      type: "line",
+      xMin: pos,
+      xMax: pos,
+      borderColor: ev.color,
+      borderWidth: 2,
+      borderDash: [6, 4],
+      label: {
+        display: true,
+        content: ev.label,
+        position: "start",
+        backgroundColor: ev.color,
+        color: "#fff",
+        font: { size: 11, weight: "600" },
+        padding: { x: 6, y: 3 },
+        borderRadius: 4,
+      },
+    };
+  });
+  return out;
+}
+
 function drawChart(type, points) {
   const ctx = $("#progress-chart").getContext("2d");
   if (chart) chart.destroy();
   const labels = points.map((p) => fmtDate(p.date));
   const colors = points.map((p) => (p.energy && ENERGY_COLOR[p.energy]) || POINT_DEFAULT);
+  const lifeAnnotations = buildLifeEventAnnotations(points);
 
   const datasets = [];
   const scales = {
@@ -838,6 +882,7 @@ function drawChart(type, points) {
             },
           },
         },
+        annotation: { annotations: lifeAnnotations },
       },
       scales,
     },
