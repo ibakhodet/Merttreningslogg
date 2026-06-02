@@ -3,7 +3,7 @@ import Chart from "https://esm.sh/chart.js@4.4.3/auto";
 
 // Viktige hendelser som tegnes som loddrette markører på alle grafer
 const LIFE_EVENTS = [
-  { date: "2026-02-02", label: "❤️ Hjerteoperasjon", color: "#ef4444" },
+  { date: "2026-02-02", label: "❤️", color: "#ef4444" },
 ];
 
 // Innebygd Chart.js-plugin som tegner loddrette markører for LIFE_EVENTS.
@@ -35,20 +35,26 @@ const lifeEventsPlugin = {
       ctx.lineTo(x, bottom);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = '600 11px -apple-system, system-ui, sans-serif';
+      ctx.font = '600 13px -apple-system, system-ui, sans-serif';
       const text = ev.label;
       const tw = ctx.measureText(text).width;
-      const padX = 6, padY = 3, h = 11 + padY * 2;
+      const padX = 5, padY = 3, h = 14 + padY * 2;
       let lx = x + 4;
       if (lx + tw + padX * 2 > xScale.right) lx = x - tw - padX * 2 - 4;
       const ly = top + 4;
-      ctx.fillStyle = ev.color;
-      ctx.beginPath();
+      // Hvit boks med tynn rød kant
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = ev.color;
+      ctx.lineWidth = 1;
       const r = 4;
-      ctx.roundRect ? ctx.roundRect(lx, ly, tw + padX * 2, h, r) : ctx.rect(lx, ly, tw + padX * 2, h);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(lx, ly, tw + padX * 2, h, r);
+      else ctx.rect(lx, ly, tw + padX * 2, h);
       ctx.fill();
-      ctx.fillStyle = "#fff";
+      ctx.stroke();
+      // Emoji rendrer med sin egen farge
       ctx.textBaseline = "top";
+      ctx.fillStyle = "#000";
       ctx.fillText(text, lx + padX, ly + padY);
       ctx.restore();
     });
