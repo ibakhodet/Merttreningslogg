@@ -1,12 +1,60 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Chart from "https://esm.sh/chart.js@4.4.3/auto";
-import annotationPlugin from "https://esm.sh/chartjs-plugin-annotation@3";
-Chart.register(annotationPlugin);
 
 // Viktige hendelser som tegnes som loddrette markører på alle grafer
 const LIFE_EVENTS = [
   { date: "2026-02-02", label: "❤️ Hjerteoperasjon", color: "#ef4444" },
 ];
+
+// Innebygd Chart.js-plugin som tegner loddrette markører for LIFE_EVENTS.
+// Holdes lokal her – ingen ekstern avhengighet, ingen risiko for at en
+// CDN-import ødelegger hele appen.
+const lifeEventsPlugin = {
+  id: "lifeEvents",
+  afterDatasetsDraw(chart, _args, opts) {
+    const events = (opts && opts.events) || [];
+    if (!events.length) return;
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    if (!xScale || !yScale) return;
+    const ctx = chart.ctx;
+    events.forEach((ev) => {
+      const floor = Math.floor(ev.position);
+      const frac = ev.position - floor;
+      const x1 = xScale.getPixelForValue(floor);
+      const x2 = xScale.getPixelForValue(floor + 1);
+      const x = Number.isFinite(x1) && Number.isFinite(x2) ? x1 + (x2 - x1) * frac : xScale.getPixelForValue(ev.position);
+      const top = yScale.top;
+      const bottom = yScale.bottom;
+      ctx.save();
+      ctx.strokeStyle = ev.color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '600 11px -apple-system, system-ui, sans-serif';
+      const text = ev.label;
+      const tw = ctx.measureText(text).width;
+      const padX = 6, padY = 3, h = 11 + padY * 2;
+      let lx = x + 4;
+      if (lx + tw + padX * 2 > xScale.right) lx = x - tw - padX * 2 - 4;
+      const ly = top + 4;
+      ctx.fillStyle = ev.color;
+      ctx.beginPath();
+      const r = 4;
+      ctx.roundRect ? ctx.roundRect(lx, ly, tw + padX * 2, h, r) : ctx.rect(lx, ly, tw + padX * 2, h);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.textBaseline = "top";
+      ctx.fillText(text, lx + padX, ly + padY);
+      ctx.restore();
+    });
+  },
+};
+Chart.register(lifeEventsPlugin);
 
 // ===================================================================
 //  Oppsett / tilstand
@@ -754,38 +802,20 @@ async function loadEnergyMap(dates) {
   return map;
 }
 
-function buildLifeEventAnnotations(points) {
-  const out = {};
+function buildLifeEventMarkers(points) {
+  const out = [];
   if (!points.length) return out;
   const first = points[0].date;
   const last = points[points.length - 1].date;
-  LIFE_EVENTS.forEach((ev, idx) => {
-    if (ev.date < first || ev.date > last) return; // Hopp over hvis utenfor synlig spenn
-    // Finn posisjon på den kategoriske x-aksen (bruk bråkindeks mellom punkter)
+  LIFE_EVENTS.forEach((ev) => {
+    if (ev.date < first || ev.date > last) return;
     let pos = null;
     for (let i = 0; i < points.length; i++) {
       if (points[i].date === ev.date) { pos = i; break; }
       if (points[i].date > ev.date) { pos = i - 0.5; break; }
     }
     if (pos === null) return;
-    out["life_" + idx] = {
-      type: "line",
-      xMin: pos,
-      xMax: pos,
-      borderColor: ev.color,
-      borderWidth: 2,
-      borderDash: [6, 4],
-      label: {
-        display: true,
-        content: ev.label,
-        position: "start",
-        backgroundColor: ev.color,
-        color: "#fff",
-        font: { size: 11, weight: "600" },
-        padding: { x: 6, y: 3 },
-        borderRadius: 4,
-      },
-    };
+    out.push({ position: pos, color: ev.color, label: ev.label });
   });
   return out;
 }
@@ -795,7 +825,7 @@ function drawChart(type, points) {
   if (chart) chart.destroy();
   const labels = points.map((p) => fmtDate(p.date));
   const colors = points.map((p) => (p.energy && ENERGY_COLOR[p.energy]) || POINT_DEFAULT);
-  const lifeAnnotations = buildLifeEventAnnotations(points);
+  const lifeMarkers = buildLifeEventMarkers(points);
 
   const datasets = [];
   const scales = {
@@ -882,7 +912,7 @@ function drawChart(type, points) {
             },
           },
         },
-        annotation: { annotations: lifeAnnotations },
+        lifeEvents: { events: lifeMarkers },
       },
       scales,
     },
