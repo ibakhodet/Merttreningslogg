@@ -10,7 +10,4 @@
 window.APP_CONFIG = {
   SUPABASE_URL: "https://fejvoueikiiciklmjvwv.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_8JLhg0-22jj2scZGWVmgHw_0JNvdapM",
-
-  // Forhåndsutfylt e-post i innloggingen (kan endres ved innlogging).
-  DEFAULT_EMAIL: "marteri9@gmail.com",
 };

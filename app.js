@@ -71,7 +71,8 @@ const LS = {
   doge: "doge_on",
 };
 
-const APP_VERSION = "1.2";
+const APP_VERSION = "1.3";
+const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
 let logDirty = false;
@@ -282,23 +283,21 @@ async function onLoggedIn(u) {
 //  Auth-flyt
 // ===================================================================
 function wireAuth() {
-  // Forhåndsutfyll e-post hvis satt i config.js
-  const defEmail = window.APP_CONFIG && window.APP_CONFIG.DEFAULT_EMAIL;
-  if (defEmail && !$("#auth-email").value) $("#auth-email").value = defEmail;
-
   $("#auth-send").addEventListener("click", async () => {
     const email = $("#auth-email").value.trim();
     if (!email) return authMsg("Skriv inn e-post.", true);
     setBtnLoading($("#auth-send"), true, "Sender…");
-    // shouldCreateUser: false – ingen nye kontoer kan opprettes via appen.
-    // Kontoen finnes allerede; dette hindrer fremmede i å registrere seg.
+    if (email.toLowerCase() !== ALLOWED_EMAIL) {
+      setBtnLoading($("#auth-send"), false, "Send engangskode");
+      return authMsg("Kunne ikke sende kode.", true);
+    }
     const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
     setBtnLoading($("#auth-send"), false, "Send engangskode");
-    if (error) return authMsg(error.message, true);
+    if (error) return authMsg("Kunne ikke sende kode.", true);
     pendingEmail = email;
     hide($("#auth-step-email"));
     show($("#auth-step-code"));
-    authMsg("Vi sendte en engangskode til " + email + ".");
+    authMsg("Engangskode er sendt.");
   });
 
   $("#auth-verify").addEventListener("click", async () => {
@@ -307,15 +306,9 @@ function wireAuth() {
     setBtnLoading($("#auth-verify"), true, "Logger inn…");
     const { data, error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
     setBtnLoading($("#auth-verify"), false, "Logg inn");
-    if (error) return authMsg(error.message, true);
+    if (error) return authMsg("Feil kode. Prøv igjen.", true);
     authMsg("");
     await onLoggedIn(data.user);
-  });
-
-  $("#auth-back").addEventListener("click", () => {
-    show($("#auth-step-email"));
-    hide($("#auth-step-code"));
-    authMsg("");
   });
 }
 function authMsg(msg, isErr = false) {
@@ -514,16 +507,43 @@ async function cloneLastSession() {
 }
 
 function buildExerciseCard(ex, entry, suggestions, lastEntry) {
-  const card = el("div", "ex-card");
+  const card = el("div", "ex-card collapsed");
   card.dataset.exId = ex.id;
   card.dataset.exType = ex.type;
 
   const head = el("div", "ex-head");
+  const left = el("div", "ex-head-left");
   const nameSpan = el("span", "name");
   nameSpan.textContent = ex.name;
-  head.appendChild(nameSpan);
-  const saved = entry ? '<span class="ex-saved-tag">● lagret</span>' : "";
-  head.insertAdjacentHTML("beforeend", `<span class="badge">${badgeText(ex.type)} ${saved}</span>`);
+  left.appendChild(nameSpan);
+  const chevron = el("span", "ex-chevron");
+  chevron.textContent = "▾";
+  left.appendChild(chevron);
+  head.appendChild(left);
+
+  const right = el("div", "ex-head-right");
+  if (entry) {
+    const delBtn = el("button", "ex-delete", "🗑");
+    delBtn.type = "button";
+    delBtn.title = "Slett denne oppføringen";
+    delBtn.setAttribute("aria-label", "Slett oppføring");
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const dateLabel = fmtDate(getLogDateIso() || todayStr());
+      if (!confirm(`Slette ${ex.name} for ${dateLabel}?`)) return;
+      await deleteEntry(entry.id);
+    });
+    right.appendChild(delBtn);
+  }
+  const savedMark = entry ? ' <span class="ex-saved-tag">● lagret</span>' : "";
+  right.insertAdjacentHTML("beforeend", `<span class="badge">${badgeText(ex.type)}${savedMark}</span>`);
+  head.appendChild(right);
+
+  head.addEventListener("click", (e) => {
+    if (e.target.closest(".ex-delete")) return;
+    card.classList.toggle("collapsed");
+  });
+
   card.appendChild(head);
 
   const hint = lastEntryHint(ex, lastEntry);
@@ -728,6 +748,15 @@ async function upsertSession(date, energy) {
     .from("sessions")
     .upsert({ user_id: user.id, performed_on: date, energy }, { onConflict: "user_id,performed_on" });
   if (error) throw error;
+}
+
+async function deleteEntry(entryId) {
+  const { error: setsErr } = await sb.from("sets").delete().eq("entry_id", entryId);
+  if (setsErr) { toast("Feil ved sletting: " + setsErr.message, true); return; }
+  const { error } = await sb.from("entries").delete().eq("id", entryId);
+  if (error) { toast("Feil ved sletting: " + error.message, true); return; }
+  toast("Slettet ✓");
+  await renderLog();
 }
 
 async function upsertEntry(exId, date, fields) {

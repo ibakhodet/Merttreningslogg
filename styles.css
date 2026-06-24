@@ -166,9 +166,18 @@ button.danger { color: var(--danger); }
   border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
   box-shadow: var(--shadow);
 }
-.ex-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 16px 12px; }
+.ex-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 16px 12px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+.ex-head-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.ex-head-right { display: flex; align-items: center; gap: 8px; }
 .ex-head .name { font-weight: 700; font-size: 16.5px; }
+.ex-chevron { color: var(--muted); font-size: 12px; transition: transform 0.2s ease; line-height: 1; }
+.ex-card.collapsed .ex-chevron { transform: rotate(-90deg); }
+.ex-card.collapsed .ex-body,
+.ex-card.collapsed .last-hint { display: none; }
+.ex-card.collapsed .ex-head { padding-bottom: 15px; }
 .ex-head .badge { font-size: 11px; color: var(--accent-bright); background: rgba(59,130,246,0.12); padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(59,130,246,0.30); white-space: nowrap; font-weight: 600; }
+.ex-head .ex-delete { background: transparent; border: none; color: var(--danger); font-size: 16px; padding: 4px 6px; opacity: 0.65; line-height: 1; cursor: pointer; }
+.ex-head .ex-delete:active { opacity: 1; }
 .ex-body { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 11px; }
 .ex-saved-tag { font-size: 11px; color: var(--green); font-weight: 700; }
 
