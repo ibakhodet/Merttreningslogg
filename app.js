@@ -71,7 +71,7 @@ const LS = {
   doge: "doge_on",
 };
 
-const APP_VERSION = "1.4";
+const APP_VERSION = "1.5";
 const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
@@ -747,13 +747,13 @@ async function upsertSession(date, energy) {
   if (error) throw error;
 }
 
-async function deleteEntry(entryId) {
+async function deleteEntry(entryId, opts = {}) {
   const { error: setsErr } = await sb.from("sets").delete().eq("entry_id", entryId);
   if (setsErr) { toast("Feil ved sletting: " + setsErr.message, true); return; }
   const { error } = await sb.from("entries").delete().eq("id", entryId);
   if (error) { toast("Feil ved sletting: " + error.message, true); return; }
   toast("Slettet ✓");
-  await renderLog();
+  if (!opts.silentReload) await renderLog();
 }
 
 async function upsertEntry(exId, date, fields) {
@@ -983,7 +983,7 @@ function drawTable(ex, entries, energyByDate = {}) {
     const dot = energy
       ? `<span class="energy-dot" style="background:${ENERGY_COLOR[energy]}" title="${cap(energy)}"></span>`
       : `<span class="energy-dot" style="background:${POINT_DEFAULT};opacity:.4"></span>`;
-    return `<tr><td>${dot}${fmtDate(e.performed_on)}</td><td>${summary}</td></tr>`;
+    return `<tr data-entry-id="${e.id}" data-date="${e.performed_on}"><td>${dot}${fmtDate(e.performed_on)}</td><td>${summary}</td><td class="progress-del-cell"><button type="button" class="progress-del" aria-label="Slett oppføring">🗑</button></td></tr>`;
   }).join("");
   const legend =
     `<div class="energy-legend">` +
@@ -991,9 +991,22 @@ function drawTable(ex, entries, energyByDate = {}) {
     `<span><i style="background:#f59e0b"></i>Slapp</span>` +
     `<span><i style="background:#ef4444"></i>Syk</span>` +
     `</div>`;
-  $("#progress-table").innerHTML =
+  const tableHtml =
     legend +
-    `<table><thead><tr><th>Dato</th><th>Resultat</th></tr></thead><tbody>${rows}</tbody></table>`;
+    `<table><thead><tr><th>Dato</th><th>Resultat</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  const wrap = $("#progress-table");
+  wrap.innerHTML = tableHtml;
+  wrap.querySelectorAll(".progress-del").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const tr = btn.closest("tr");
+      const entryId = tr.dataset.entryId;
+      const date = tr.dataset.date;
+      if (!confirm(`Slette ${ex.name} for ${fmtDate(date)}?`)) return;
+      await deleteEntry(entryId, { silentReload: true });
+      await renderProgress();
+    });
+  });
 }
 
 // ===================================================================
