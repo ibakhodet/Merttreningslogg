@@ -71,7 +71,7 @@ const LS = {
   doge: "doge_on",
 };
 
-const APP_VERSION = "1.3";
+const APP_VERSION = "1.4";
 const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
@@ -284,17 +284,14 @@ async function onLoggedIn(u) {
 // ===================================================================
 function wireAuth() {
   $("#auth-send").addEventListener("click", async () => {
-    const email = $("#auth-email").value.trim();
-    if (!email) return authMsg("Skriv inn e-post.", true);
     setBtnLoading($("#auth-send"), true, "Sender…");
-    if (email.toLowerCase() !== ALLOWED_EMAIL) {
-      setBtnLoading($("#auth-send"), false, "Send engangskode");
-      return authMsg("Kunne ikke sende kode.", true);
-    }
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-    setBtnLoading($("#auth-send"), false, "Send engangskode");
+    const { error } = await sb.auth.signInWithOtp({
+      email: ALLOWED_EMAIL,
+      options: { shouldCreateUser: false },
+    });
+    setBtnLoading($("#auth-send"), false, "Send engangskode til e-posten min");
     if (error) return authMsg("Kunne ikke sende kode.", true);
-    pendingEmail = email;
+    pendingEmail = ALLOWED_EMAIL;
     hide($("#auth-step-email"));
     show($("#auth-step-code"));
     authMsg("Engangskode er sendt.");
