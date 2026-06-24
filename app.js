@@ -71,7 +71,7 @@ const LS = {
   doge: "doge_on",
 };
 
-const APP_VERSION = "1.1";
+const APP_VERSION = "1.2";
 
 // Spor ulagrede endringer i Logg-fanen
 let logDirty = false;
@@ -161,6 +161,23 @@ function getLogDateIso() {
 function setLogDateIso(iso) {
   $("#log-date").value = isoToDmy(iso);
   $("#log-weekday").textContent = iso ? cap(weekdayName(iso)) : "";
+  updateDateShortcuts(iso);
+}
+function updateDateShortcuts(iso) {
+  const todayBtn = document.getElementById("date-today");
+  if (!todayBtn) return;
+  todayBtn.classList.toggle("hidden", !iso || iso === todayStr());
+}
+function shiftLogDate(deltaDays) {
+  const iso = getLogDateIso() || todayStr();
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + deltaDays);
+  const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  jumpLogDate(next);
+}
+function jumpLogDate(iso) {
+  setLogDateIso(iso);
+  maybeRenderForDate(iso);
 }
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
@@ -1074,10 +1091,15 @@ function wireStaticUI() {
     if (formatted !== raw) e.target.value = formatted;
     const iso = dmyToIso(formatted);
     $("#log-weekday").textContent = iso ? cap(weekdayName(iso)) : "";
+    updateDateShortcuts(iso);
     if (!iso || iso === renderedDate) return;
     clearTimeout(dateDebounce);
     dateDebounce = setTimeout(() => maybeRenderForDate(iso), 350);
   });
+
+  $("#date-prev").addEventListener("click", () => shiftLogDate(-1));
+  $("#date-next").addEventListener("click", () => shiftLogDate(1));
+  $("#date-today").addEventListener("click", () => jumpLogDate(todayStr()));
   $("#progress-exercise").addEventListener("change", renderProgress);
 
   // Marker ulagrede endringer i Logg-fanen

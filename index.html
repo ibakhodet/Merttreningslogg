@@ -67,6 +67,11 @@
           <input id="log-date" type="text" inputmode="numeric" maxlength="10"
                  placeholder="dd.mm.åååå" class="date-input" autocomplete="off" />
           <span id="log-weekday" class="date-weekday"></span>
+          <div class="date-shortcuts">
+            <button id="date-prev" type="button" class="date-shortcut" aria-label="Forrige dag">‹ Dag</button>
+            <button id="date-today" type="button" class="date-shortcut hidden">I dag</button>
+            <button id="date-next" type="button" class="date-shortcut" aria-label="Neste dag">Dag ›</button>
+          </div>
         </div>
       </header>
       <div id="log-content" class="content"></div>
