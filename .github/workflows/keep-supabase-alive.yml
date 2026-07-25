@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Hent koden
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Les Supabase-nøkler fra config.js
         id: cfg
