@@ -71,7 +71,7 @@ const LS = {
   doge: "doge_on",
 };
 
-const APP_VERSION = "1.6";
+const APP_VERSION = "1.7";
 const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
@@ -366,15 +366,29 @@ async function renderLog() {
     return;
   }
 
-  // Hent alt parallelt: dagens oppføringer, forslag, dagsform, og tidligere
-  // økter (for «Sist gang»-hint på hvert øvelseskort).
-  const [todayRes, suggestions, session, priorRes] = await Promise.all([
+  // Uka (man–søn) som valgt dato ligger i – for ukeslinja i dag-kortet.
+  const dObj = parseLocal(date);
+  const dow = (dObj.getDay() + 6) % 7; // 0 = mandag
+  const mon = new Date(dObj); mon.setDate(dObj.getDate() - dow);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  const toIso = (dt) => new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+  // Hent alt parallelt: dagens oppføringer, forslag, dagsform, tidligere
+  // økter (for «Sist gang»-hint på hvert øvelseskort) og ukas økter.
+  const [todayRes, suggestions, session, priorRes, weekRes] = await Promise.all([
     sb.from("entries").select("*, sets(*)").eq("user_id", user.id).eq("performed_on", date),
     entertainmentSuggestions(),
     loadSession(date),
     sb.from("entries").select("*, sets(*)").eq("user_id", user.id)
       .lt("performed_on", date).order("performed_on", { ascending: false }).limit(400),
+    sb.from("entries").select("performed_on").eq("user_id", user.id)
+      .gte("performed_on", toIso(mon)).lte("performed_on", toIso(sun)),
   ]);
+
+  const week = {
+    count: new Set((weekRes.data || []).map((e) => e.performed_on)).size,
+    last: priorRes.data && priorRes.data.length ? priorRes.data[0].performed_on : null,
+  };
 
   const byEx = {};
   (todayRes.data || []).forEach((e) => { byEx[e.exercise_id] = e; });
@@ -389,7 +403,7 @@ async function renderLog() {
   currentSuggestions = suggestions;
 
   box.innerHTML = "";
-  box.appendChild(buildDayCard(date));
+  box.appendChild(buildDayCard(date, session, week));
 
   let lastType = null;
   for (const ex of list) {
@@ -402,9 +416,6 @@ async function renderLog() {
 
   // Hurtig-legg-til øvelse rett fra loggen
   box.appendChild(buildQuickAddButton());
-
-  // Dagsform nederst – vurderes i retrospekt, ikke først
-  box.appendChild(buildEnergyCard(session));
 
   // Lagre-knapp
   const bar = el("div", "savebar");
@@ -433,7 +444,7 @@ function lastEntryHint(ex, last) {
   return `Sist (${fmtDate(last.performed_on)}): ${summary}`;
 }
 
-function buildDayCard(date) {
+function buildDayCard(date, session, week) {
   const card = el("div", "card day-card");
   const head = el("div", "day-head");
   head.innerHTML =
@@ -441,38 +452,32 @@ function buildDayCard(date) {
     `<div class="muted">${fullDate(date)}</div>`;
   card.appendChild(head);
 
+  const meta = el("div", "day-meta");
+
+  // Ukeslinje: antall økter denne uka, og når forrige økt var.
+  let weekTxt = week.count === 0
+    ? "Ingen økter denne uka enda"
+    : week.count + (week.count === 1 ? " økt" : " økter") + " denne uka";
+  if (week.last) weekTxt += " · sist " + fmtDate(week.last);
+  meta.appendChild(el("div", "day-week", weekTxt));
+
+  // Retrospekt fra sist lagring (dagsform + kommentar). Endres via «Lagre økt».
+  if (session && (session.energy || session.comment)) {
+    const parts = [];
+    if (session.energy) {
+      const e = ENERGY.find((x) => x[0] === session.energy);
+      if (e) parts.push(`<span class="emoji">${e[2]}</span> ${e[1]}`);
+    }
+    if (session.comment) parts.push("💬 " + escapeHtml(session.comment));
+    meta.appendChild(el("div", "day-retro", parts.join(" · ")));
+  }
+  card.appendChild(meta);
+
   const cloneBtn = el("button", "clone-btn", "📋 Klon forrige trening");
   cloneBtn.type = "button";
   cloneBtn.addEventListener("click", cloneLastSession);
   card.appendChild(cloneBtn);
 
-  return card;
-}
-
-// Dagsform-kortet ligger nederst i loggen, rett over Lagre-knappen.
-function buildEnergyCard(session) {
-  const card = el("div", "card retro-card");
-  card.appendChild(el("div", "energy-label", "Dagsform"));
-  const picker = el("div", "energy-picker");
-  ENERGY.forEach(([val, label, emoji]) => {
-    const b = el("button", "energy-btn" + (session && session.energy === val ? " active" : ""),
-      `<span class="emoji">${emoji}</span>${label}`);
-    b.type = "button";
-    b.dataset.energy = val;
-    b.addEventListener("click", () => {
-      const wasActive = b.classList.contains("active");
-      picker.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
-      if (!wasActive) b.classList.add("active"); // trykk igjen for å fjerne valg
-    });
-    picker.appendChild(b);
-  });
-  card.appendChild(picker);
-
-  if (session && session.comment) {
-    const c = el("div", "retro-comment");
-    c.textContent = "💬 " + session.comment;
-    card.appendChild(c);
-  }
   return card;
 }
 
@@ -495,19 +500,36 @@ function openModal(modalEl) {
   return () => backdrop.remove();
 }
 
-// Kort kommentar til økta (maks 100 tegn). Eneste vei ut er OK –
-// tom tekst betyr «ingen kommentar».
-function promptComment(initial, dateIso) {
+// Retrospekt etter lagring: dagsform + kort kommentar (maks 100 tegn) i én
+// popup. Eneste vei ut er OK – ingen valg / tom tekst betyr «ingen».
+function promptRetro(session, dateIso) {
   return new Promise((resolve) => {
     const m = el("div", "modal");
     m.innerHTML =
-      `<h3>Kommentar til økta</h3>` +
-      `<div class="muted small">${cap(weekdayName(dateIso))} ${fmtDate(dateIso)} · valgfritt, maks 100 tegn</div>`;
+      `<h3>Hvordan gikk økta?</h3>` +
+      `<div class="muted small">${cap(weekdayName(dateIso))} ${fmtDate(dateIso)} · begge deler er valgfrie</div>`;
+
+    let energy = session && session.energy ? session.energy : null;
+    m.appendChild(el("div", "energy-label", "Dagsform"));
+    const picker = el("div", "energy-picker");
+    ENERGY.forEach(([val, label, emoji]) => {
+      const b = el("button", "energy-btn" + (energy === val ? " active" : ""),
+        `<span class="emoji">${emoji}</span>${label}`);
+      b.type = "button";
+      b.addEventListener("click", () => {
+        energy = energy === val ? null : val; // trykk igjen for å fjerne valg
+        picker.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b && energy != null));
+      });
+      picker.appendChild(b);
+    });
+    m.appendChild(picker);
+
+    m.appendChild(el("div", "energy-label", "Kommentar · maks 100 tegn"));
     const ta = el("textarea");
     ta.maxLength = 100;
     ta.rows = 3;
     ta.placeholder = "F.eks. «Tung i beina, men bra pump»";
-    ta.value = initial || "";
+    ta.value = session && session.comment ? session.comment : "";
     const counter = el("div", "modal-counter");
     const updCount = () => { counter.textContent = ta.value.length + "/100"; };
     ta.addEventListener("input", updCount);
@@ -517,8 +539,10 @@ function promptComment(initial, dateIso) {
     m.append(ta, counter, ok);
 
     const close = openModal(m);
-    setTimeout(() => ta.focus(), 60);
-    const done = () => { close(); resolve(ta.value.trim().slice(0, 100)); };
+    const done = () => {
+      close();
+      resolve({ energy, comment: ta.value.trim().slice(0, 100) || null });
+    };
     ok.addEventListener("click", done);
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) done();
@@ -820,8 +844,6 @@ async function saveSession() {
   const btn = $("#save-session");
   setBtnLoading(btn, true, "Lagrer…");
   let savedCount = 0;
-  const energyBtn = document.querySelector(".energy-btn.active");
-  const energy = energyBtn ? energyBtn.dataset.energy : null;
   try {
     // 1) Øvelsene lagres først. Det er de viktige dataene, og de skal være
     //    trygt i databasen før vi stopper opp og spør om en kommentar.
@@ -863,37 +885,34 @@ async function saveSession() {
       }
     }
 
-    if (savedCount === 0 && !energy) {
-      setBtnLoading(btn, false, "Lagre økt");
+    // 2) Retrospekt: dagsform + kort kommentar i én popup. Vises alltid –
+    //    også uten øvelser, så en sykedag kan logges. Dukker opp FØR Doge.
+    setBtnLoading(btn, false, "Lagre økt");
+    const retro = await promptRetro(currentSession, date);
+    const hadSession = !!currentSession;
+
+    if (savedCount === 0 && retro.energy == null && retro.comment == null && !hadSession) {
       toast("Ingenting å lagre – fyll inn noe først", true);
       return;
     }
 
-    // 2) Retrospekt: kort kommentar (valgfri). Dukker opp FØR Doge.
-    setBtnLoading(btn, false, "Lagre økt");
-    const prevComment = currentSession && currentSession.comment ? currentSession.comment : "";
-    const comment = (await promptComment(prevComment, date)) || null;
-
-    // 3) Dagsform + kommentar i samme rad. Feiler dette (f.eks. fordi
-    //    SQL-oppdateringen ikke er kjørt enda) er øvelsene likevel lagret.
+    // 3) Dagsform + kommentar i samme rad. Feiler dette er øvelsene
+    //    likevel trygt lagret, så si det tydelig i stedet for «feil».
     setBtnLoading(btn, true, "Lagrer…");
     try {
-      if (energy != null || comment != null || currentSession) {
-        await upsertSession(date, { energy, comment });
+      if (retro.energy != null || retro.comment != null || hadSession) {
+        await upsertSession(date, { energy: retro.energy, comment: retro.comment });
       }
     } catch (se) {
       console.error(se);
       setBtnLoading(btn, false, "Lagre økt");
-      const missingCol = /comment/i.test(se.message || "");
-      toast(missingCol
-        ? "Øvelsene er lagret. Kommentar feilet – kjør SQL-oppdateringen i Supabase."
-        : "Øvelsene er lagret, men dagsform/kommentar feilet: " + (se.message || se), true);
+      toast("Øvelsene er lagret, men dagsform/kommentar feilet: " + (se.message || se), true);
       await renderLog();
       return;
     }
     setBtnLoading(btn, false, "Lagre økt");
 
-    if (savedCount === 0) toast("Dagsform lagret ✓");
+    if (savedCount === 0) toast("Retrospekt lagret ✓");
     else {
       toast("Lagret " + savedCount + " øvelse" + (savedCount > 1 ? "r" : "") + " ✓");
       praiseDoge();
@@ -918,9 +937,9 @@ async function loadSession(date) {
 
 async function upsertSession(date, fields) {
   const payload = { user_id: user.id, performed_on: date };
-  // energy utelates når den ikke er valgt, så en tidligere dagsform ikke nulles.
-  if (fields.energy != null) payload.energy = fields.energy;
-  // comment: null betyr «fjern», undefined betyr «ikke rør».
+  // Popupen viser alltid nåværende tilstand, så det som står der er sannheten:
+  // null betyr «fjern», undefined betyr «ikke rør».
+  if (fields.energy !== undefined) payload.energy = fields.energy;
   if (fields.comment !== undefined) payload.comment = fields.comment;
   const { error } = await sb
     .from("sessions")
@@ -999,9 +1018,9 @@ async function drawProgress(ex) {
     return;
   }
 
-  // Dagsform for disse datoene (gir farge på punktene)
+  // Dagsform og kommentar for disse datoene (farge på punktene + notat i tabellen)
   const dates = entries.map((e) => e.performed_on);
-  const energyByDate = await loadEnergyMap(dates);
+  const { energyByDate, commentByDate } = await loadSessionMaps(dates);
 
   const points = entries.map((e) => {
     const sets = e.sets || [];
@@ -1017,19 +1036,23 @@ async function drawProgress(ex) {
   });
 
   drawChart(ex.type, points);
-  drawTable(ex, entries.slice().reverse(), energyByDate);
+  drawTable(ex, entries.slice().reverse(), energyByDate, commentByDate);
 }
 
-async function loadEnergyMap(dates) {
-  const map = {};
-  if (!dates.length) return map;
+async function loadSessionMaps(dates) {
+  const energyByDate = {};
+  const commentByDate = {};
+  if (!dates.length) return { energyByDate, commentByDate };
   const { data } = await sb
     .from("sessions")
-    .select("performed_on, energy")
+    .select("performed_on, energy, comment")
     .eq("user_id", user.id)
     .in("performed_on", dates);
-  (data || []).forEach((s) => { if (s.energy) map[s.performed_on] = s.energy; });
-  return map;
+  (data || []).forEach((s) => {
+    if (s.energy) energyByDate[s.performed_on] = s.energy;
+    if (s.comment) commentByDate[s.performed_on] = s.comment;
+  });
+  return { energyByDate, commentByDate };
 }
 
 function buildLifeEventMarkers(points) {
@@ -1149,7 +1172,7 @@ function drawChart(type, points) {
   });
 }
 
-function drawTable(ex, entries, energyByDate = {}) {
+function drawTable(ex, entries, energyByDate = {}, commentByDate = {}) {
   const rows = entries.map((e) => {
     let summary;
     if (ex.type === "cardio") {
@@ -1164,7 +1187,9 @@ function drawTable(ex, entries, energyByDate = {}) {
     const dot = energy
       ? `<span class="energy-dot" style="background:${ENERGY_COLOR[energy]}" title="${cap(energy)}"></span>`
       : `<span class="energy-dot" style="background:${POINT_DEFAULT};opacity:.4"></span>`;
-    return `<tr data-entry-id="${e.id}" data-date="${e.performed_on}"><td>${dot}${fmtDate(e.performed_on)}</td><td>${summary}</td><td class="progress-del-cell"><button type="button" class="progress-del" aria-label="Slett oppføring">🗑</button></td></tr>`;
+    const comment = commentByDate[e.performed_on];
+    const commentHtml = comment ? `<div class="progress-comment">💬 ${escapeHtml(comment)}</div>` : "";
+    return `<tr data-entry-id="${e.id}" data-date="${e.performed_on}"><td>${dot}${fmtDate(e.performed_on)}</td><td>${summary}${commentHtml}</td><td class="progress-del-cell"><button type="button" class="progress-del" aria-label="Slett oppføring">🗑</button></td></tr>`;
   }).join("");
   const legend =
     `<div class="energy-legend">` +
