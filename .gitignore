@@ -1,0 +1,7 @@
+# Lokale filer og hemmeligheter som aldri skal committes
+.env
+.env.*
+*.local
+node_modules/
+.DS_Store
+Thumbs.db

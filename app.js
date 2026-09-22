@@ -72,7 +72,7 @@ const LS = {
   draftPrefix: "draft_", // + ISO-dato: lokalt utkast av ulagret økt
 };
 
-const APP_VERSION = "1.8";
+const APP_VERSION = "1.9";
 const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
@@ -1623,7 +1623,9 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function escapeAttr(s) {
-  return String(s).replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  // Samme dekning som escapeHtml – trygt uansett hvilken HTML-kontekst
+  // strengen havner i (attributt eller tekst).
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // Start

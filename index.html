@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Innholdssikkerhet: appen kjører kun egne skript + de to CDN-modulene den
+       trenger, snakker kun med sin egen Supabase, og alt annet blokkeres. Dette
+       gjør at et kapret tredjeparts-skript ikke fritt kan sende dataene dine ut. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://esm.sh; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'" />
   <!-- Skjult fra søkemotorer – dette er en privat logg. -->
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
   <meta name="googlebot" content="noindex, nofollow" />

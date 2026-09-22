@@ -4,8 +4,8 @@ Appen er **ferdig og klar til å tas i bruk**. Dette dokumentet tar deg gjennom 
 siste stegene: sette opp databasen, legge appen ut på nett (GitHub Pages), og
 installere den på iPhone. Beregn ca. 10 minutter.
 
-> Innlogging skjer med **marteri9@gmail.com** (forhåndsutfylt i appen).
-> Du logger inn med en engangskode du får på e-post – ingen passord.
+> Innlogging skjer med engangskode på e-post til kontoinnehaveren – ingen
+> passord, og e-postfeltet er ikke forhåndsutfylt.
 
 ---
 
@@ -76,8 +76,8 @@ Du sa du vil lage en GitHub Page med riktig navn selv. Når du er der, har du
 
 ## Steg 4 – Logg inn og kom i gang
 
-1. Åpne appen fra Hjem-skjermen. E-posten din er forhåndsutfylt.
-2. Trykk **Send engangskode** → sjekk e-posten → skriv inn den 6-sifrede koden.
+1. Åpne appen fra Hjem-skjermen.
+2. Trykk **Send engangskode** → sjekk e-posten → skriv inn koden.
 3. Standardøvelsene dine ligger klare. Velg dagsform, fyll inn økta, **Lagre økt**. 🎉
 
 ---

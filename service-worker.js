@@ -1,6 +1,6 @@
 // Enkel service worker – gjør appen installerbar og laster app-skallet raskt.
 // Nettverk-først for navigasjon slik at du alltid får siste versjon når du er på nett.
-const CACHE = "trening-v24";
+const CACHE = "trening-v25";
 const SHELL = [
   "./",
   "./index.html",
