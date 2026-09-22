@@ -84,4 +84,11 @@ drop policy if exists "egne sett" on public.sets;
 create policy "egne sett" on public.sets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- ---------- Oppdateringer ----------
+-- Trygge å kjøre flere ganger. Har du allerede satt opp databasen, holder
+-- det å kjøre linjene under denne overskriften.
+
+-- v1.6: kort kommentar per økt (maks 100 tegn, håndheves i appen).
+alter table public.sessions add column if not exists comment text;
+
 -- Ferdig! Gå tilbake til appen og logg inn.
