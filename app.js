@@ -69,9 +69,10 @@ const LS = {
   url: "sb_url",
   key: "sb_key",
   doge: "doge_on",
+  draftPrefix: "draft_", // + ISO-dato: lokalt utkast av ulagret økt
 };
 
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.8";
 const ALLOWED_EMAIL = "marteri9@gmail.com";
 
 // Spor ulagrede endringer i Logg-fanen
@@ -270,6 +271,7 @@ function registerSW() {
 
 async function onLoggedIn(u) {
   user = u;
+  pruneDrafts();
   hide($("#auth-screen"));
   hide($("#setup-screen"));
   show($("#app"));
@@ -353,6 +355,114 @@ function activeExercises() {
 }
 
 // ===================================================================
+//  Lokalt utkast – overlever refresh, låst skjerm og fanebytte
+// ===================================================================
+// Alt du taster i Logg-fanen speiles til localStorage (én nøkkel per dato)
+// ved hvert tastetrykk. Når dagen åpnes igjen legges utkastet oppå det som
+// ligger i databasen, og regnes som ulagret til du trykker «Lagre økt».
+let draftTimer = null;
+
+function draftKey(date) { return LS.draftPrefix + date; }
+
+// Leser skjemaet slik det står nå. Kun kort med innhold tas med, og verdiene
+// lagres som tekst – nøyaktig slik de ble tastet.
+function serializeDraft() {
+  const out = {};
+  for (const card of $$(".ex-card")) {
+    const exId = card.dataset.exId;
+    if (card.dataset.exType === "cardio") {
+      const minutes = (card.querySelector(".f-minutes").value || "").trim();
+      const entertainment = (card.querySelector(".f-entertainment").value || "").trim();
+      if (minutes || entertainment) out[exId] = { minutes, entertainment };
+    } else {
+      const sets = Array.from(card.querySelectorAll(".set-row")).map((row) => {
+        const w = row.querySelector(".s-weight");
+        return { w: w ? (w.value || "").trim() : "", r: (row.querySelector(".s-reps").value || "").trim() };
+      });
+      if (sets.some((s) => s.w || s.r)) out[exId] = { sets };
+    }
+  }
+  return out;
+}
+
+function saveDraft() {
+  if (!renderedDate) return;
+  // Ikke skriv mens loggen laster (ingen kort i DOM) – da ville vi
+  // overskrevet et ekte utkast med et tomt.
+  if (!$$(".ex-card").length) return;
+  const data = serializeDraft();
+  try {
+    if (Object.keys(data).length === 0) localStorage.removeItem(draftKey(renderedDate));
+    else localStorage.setItem(draftKey(renderedDate), JSON.stringify({ savedAt: Date.now(), data }));
+  } catch (e) { /* fullt lager e.l. – ikke kritisk */ }
+}
+
+function scheduleDraftSave() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 250);
+}
+
+// Skriv med en gang – brukes når siden går i bakgrunnen eller lukkes.
+function flushDraft() {
+  clearTimeout(draftTimer);
+  saveDraft();
+}
+
+function clearDraft(date) {
+  clearTimeout(draftTimer);
+  try { localStorage.removeItem(draftKey(date)); } catch (e) { /* ignorer */ }
+}
+
+// Legger utkastet oppå kortene som allerede er tegnet fra databasen.
+// Returnerer true hvis noe faktisk ble gjenopprettet.
+function restoreDraft(date) {
+  let raw = null;
+  try { raw = localStorage.getItem(draftKey(date)); } catch (e) { return false; }
+  if (!raw) return false;
+  let draft;
+  try { draft = JSON.parse(raw); } catch (e) { clearDraft(date); return false; }
+  const data = draft && draft.data ? draft.data : {};
+  let restored = 0;
+  for (const exId of Object.keys(data)) {
+    const card = document.querySelector(`.ex-card[data-ex-id="${exId}"]`);
+    if (!card) continue; // øvelsen er arkivert/slettet siden utkastet ble laget
+    const d = data[exId];
+    if (card.dataset.exType === "cardio") {
+      if (d.minutes) card.querySelector(".f-minutes").value = d.minutes;
+      if (d.entertainment) card.querySelector(".f-entertainment").value = d.entertainment;
+    } else {
+      const wrap = card.querySelector(".sets-wrap");
+      if (!wrap || !Array.isArray(d.sets)) continue;
+      wrap.innerHTML = "";
+      d.sets.forEach((s, i) => wrap.appendChild(buildSetRow(i + 1, s.w, s.r, card.dataset.exType)));
+    }
+    card.classList.remove("collapsed"); // vis det som ble hentet fram
+    restored++;
+  }
+  if (restored === 0) { clearDraft(date); return false; }
+  const t = draft.savedAt ? new Date(draft.savedAt) : null;
+  const when = t
+    ? " fra kl. " + String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0")
+    : "";
+  toast("Gjenopprettet ulagrede endringer" + when);
+  return true;
+}
+
+// Rydder bort utkast eldre enn 30 dager, så lageret ikke vokser evig.
+function pruneDrafts() {
+  try {
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(LS.draftPrefix)) continue;
+      let savedAt = 0;
+      try { savedAt = (JSON.parse(localStorage.getItem(k)) || {}).savedAt || 0; } catch (e) { /* ugyldig -> slettes */ }
+      if (savedAt < cutoff) localStorage.removeItem(k);
+    }
+  } catch (e) { /* ignorer */ }
+}
+
+// ===================================================================
 //  LOGG-fane
 // ===================================================================
 async function renderLog() {
@@ -425,9 +535,10 @@ async function renderLog() {
   bar.appendChild(btn);
   box.appendChild(bar);
 
-  // Frisk visning fra databasen -> ingen ulagrede endringer
+  // Frisk visning fra databasen. Finnes et lokalt utkast for dagen (f.eks.
+  // etter en refresh midt i økta) legges det oppå – og regnes som ulagret.
   renderedDate = date;
-  logDirty = false;
+  logDirty = restoreDraft(date);
 }
 
 function lastEntryHint(ex, last) {
@@ -672,6 +783,7 @@ async function cloneLastSession() {
     }
     cloned++;
   }
+  if (cloned) scheduleDraftSave(); // klonede tall skal også overleve en refresh
   toast(cloned ? `Klonet fra ${fmtDate(lastDate)} ✓` : "Fant ingen aktive øvelser å klone");
 }
 
@@ -884,6 +996,8 @@ async function saveSession() {
         savedCount++;
       }
     }
+    // Øvelsene ligger i databasen nå – det lokale utkastet er overflødig.
+    clearDraft(date);
 
     // 2) Retrospekt: dagsform + kort kommentar i én popup. Vises alltid –
     //    også uten øvelser, så en sykedag kan logges. Dukker opp FØR Doge.
@@ -1314,9 +1428,12 @@ function wireTabs() {
 
 function maybeRenderForDate(iso) {
   if (!iso || iso === renderedDate) return;
-  if (logDirty && !confirm("Du har ulagrede endringer for " + fmtDate(renderedDate) + ". Bytte dato og forkaste dem?")) {
-    setLogDateIso(renderedDate); // angre datobyttet i visningen
-    return;
+  if (logDirty) {
+    if (!confirm("Du har ulagrede endringer for " + fmtDate(renderedDate) + ". Bytte dato og forkaste dem?")) {
+      setLogDateIso(renderedDate); // angre datobyttet i visningen
+      return;
+    }
+    clearDraft(renderedDate); // brukeren valgte å forkaste – da skal utkastet bort
   }
   renderLog();
 }
@@ -1347,12 +1464,17 @@ function wireStaticUI() {
   $("#date-today").addEventListener("click", () => jumpLogDate(todayStr()));
   $("#progress-exercise").addEventListener("change", renderProgress);
 
-  // Marker ulagrede endringer i Logg-fanen
+  // Ulagrede endringer i Logg-fanen: marker som «dirty» og speil til lokalt utkast.
   const logBox = $("#log-content");
-  logBox.addEventListener("input", () => { logDirty = true; });
+  logBox.addEventListener("input", () => { logDirty = true; scheduleDraftSave(); });
   logBox.addEventListener("click", (e) => {
-    if (e.target.closest(".energy-btn, .add-set, .del, .clone-btn")) logDirty = true;
+    if (e.target.closest(".add-set, .del, .clone-btn")) logDirty = true;
+    // Klon er asynkron og lagrer utkastet selv når den er ferdig.
+    if (e.target.closest(".add-set, .del")) scheduleDraftSave();
   });
+  // Skriv utkastet med en gang siden går i bakgrunnen, lukkes eller refreshes.
+  window.addEventListener("pagehide", flushDraft);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushDraft(); });
 
   // Setup-skjerm (fallback hvis Supabase-nøkler mangler i config.js)
   const setupSave = $("#setup-save");
